@@ -1,0 +1,253 @@
+CREATE TABLE Users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE,
+    name VARCHAR(100),
+    password VARCHAR(255),
+    bio TEXT,
+    email VARCHAR(255) UNIQUE CONSTRAINT unique_email CHECK (email LIKE '%@gmail.com'),
+    phone VARCHAR(15) CONSTRAINT valid_phone CHECK (LENGTH(phone) = 10),
+    gender ENUM('Male', 'Female', 'Other'),
+    reg_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    post_count INT UNSIGNED DEFAULT 0,
+    followers_count BIGINT UNSIGNED DEFAULT 0,
+    following_count BIGINT UNSIGNED DEFAULT 0,
+    acc_type ENUM('personal', 'business') NOT NULL,
+    CONSTRAINT unique_email UNIQUE (email),
+    CONSTRAINT valid_phone UNIQUE (phone)
+);
+
+
+CREATE TABLE Posts (
+    post_id INT AUTO_INCREMENT,
+    like_count INT DEFAULT 0,
+    comment_count INT DEFAULT 0,
+    caption VARCHAR(255),
+    image_url VARCHAR(255),
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INT,
+    PRIMARY KEY (post_id),
+    CONSTRAINT fk_posts_user_id FOREIGN KEY (user_id) REFERENCES Users(user_id)
+);
+
+CREATE TABLE Liked_by (
+    user_id INT,
+    post_id INT,
+    PRIMARY KEY (user_id, post_id),
+    CONSTRAINT fk_liked_by_user_id FOREIGN KEY (user_id) REFERENCES Users(user_id),
+    CONSTRAINT fk_liked_by_post_id FOREIGN KEY (post_id) REFERENCES Posts(post_id)
+);
+
+CREATE TABLE Post_Location (
+    post_id INT,
+    location_id INT AUTO_INCREMENT,
+    location_name VARCHAR(100),
+    loc_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (location_id),
+    CONSTRAINT fk_post_location_post_id FOREIGN KEY (post_id) REFERENCES Posts(post_id)
+);
+
+
+CREATE TABLE Messages (
+    msg_id INT AUTO_INCREMENT PRIMARY KEY,
+    sender_id INT,
+    receiver_id INT,
+    text TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sender_id) REFERENCES Users(user_id),
+    FOREIGN KEY (receiver_id) REFERENCES Users(user_id)
+);
+
+
+CREATE TABLE Comments (
+    comment_id INT AUTO_INCREMENT,
+    content VARCHAR(255),
+    post_id INT,
+    user_id INT,
+    PRIMARY KEY (comment_id),
+    CONSTRAINT fk_comments_post_id FOREIGN KEY (post_id) REFERENCES Posts(post_id),
+    CONSTRAINT fk_comments_user_id FOREIGN KEY (user_id) REFERENCES Users(user_id)
+);
+
+CREATE TABLE Backup_History (
+    user_id INT,
+    backup_id INT AUTO_INCREMENT,
+    backup_username VARCHAR(50),
+    backup_password VARCHAR(50),
+    PRIMARY KEY (backup_id),
+    FOREIGN KEY (user_id) REFERENCES Users(user_id)
+);
+
+
+-------------------------------------------------------------------------------------------------------------
+
+1)DELIMITER $$
+CREATE TRIGGER increase_comment_count
+AFTER INSERT ON Comments
+FOR EACH ROW
+BEGIN
+    UPDATE Posts
+    SET comment_count = comment_count + 1
+    WHERE post_id = NEW.post_id;
+END $$
+DELIMITER ;
+
+2)DELIMITER $$
+CREATE TRIGGER increase_like_count
+AFTER INSERT ON Liked_by
+FOR EACH ROW
+BEGIN
+    UPDATE Posts
+    SET like_count = like_count + 1
+    WHERE post_id = NEW.post_id;
+END $$
+DELIMITER ;
+
+3)DELIMITER $$
+CREATE TRIGGER backup_details
+AFTER INSERT ON Users
+FOR EACH ROW
+BEGIN
+    -- Check if the username and password fields are being assigned values
+    IF NEW.username IS NOT NULL AND NEW.password IS NOT NULL THEN
+        -- Insert user details into the Backup_History table
+        INSERT INTO Backup_History (user_id, backup_username, backup_password)
+        VALUES (NEW.user_id, NEW.username, NEW.password);
+    END IF;
+END $$
+DELIMITER ;
+
+DELIMITER $$
+CREATE PROCEDURE Backup_User_Credentials (IN new_user_id INT, IN new_username VARCHAR(50), IN new_password VARCHAR(50))
+BEGIN
+    -- Insert username and password into the Backup_History table
+    INSERT INTO Backup_History (user_id, backup_username, backup_password)
+    VALUES (new_user_id, new_username, new_password);
+END $$
+DELIMITER ;
+
+4)DELIMITER $$
+
+CREATE FUNCTION GetTotalLikes(p_id INT) RETURNS INT
+READS SQL DATA
+BEGIN
+    DECLARE total_likes INT;
+    
+    SELECT like_count INTO total_likes
+    FROM Posts
+    WHERE post_id = p_id;
+    
+    IF total_likes IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Post ID does not exist';
+    END IF;
+    
+    RETURN total_likes;
+END$$
+
+DELIMITER ;
+
+
+
+
+
+-------------------------------------------------------------------------------------------------
+-- Insert two users into the Users table
+INSERT INTO Users (username, name, password, bio, email, phone, gender, acc_type)
+VALUES 
+    ('john_doe', 'John Doe', 'password123', 'Hello, I am John.', 'john@gmail.com', '1234567890', 'Male', 'personal'),
+    ('jane_smith', 'Jane Smith', 'password456', 'Nice to meet you!', 'jane@gmail.com', '9876543210', 'Female', 'business');
+
+-- Assuming user_id values already exist in Users table
+INSERT INTO Posts (like_count, comment_count, caption, image_url, timestamp, user_id)
+VALUES (0, 0, 'My first post!', 'https://example.com/post1.jpg', CURRENT_TIMESTAMP, 1), -- User with user_id 1 creates Post 1
+       (0, 0, 'Just another day!', 'https://example.com/post2.jpg', CURRENT_TIMESTAMP, 2); -- User with user_id 2 creates Post 2
+
+
+-- Assuming user_id and post_id values already exist in Users and Posts tables
+INSERT INTO Liked_by (user_id, post_id)
+VALUES (1, 1), -- User with user_id 1 likes Post with post_id 1
+       (2, 2); -- User with user_id 2 likes Post with post_id 2
+
+
+-- Assuming post_id values already exist in Posts table
+INSERT INTO Post_Location (post_id, location_name, loc_timestamp)
+VALUES (1, 'New York', CURRENT_TIMESTAMP), -- Post 1 is associated with 'New York'
+       (2, 'Los Angeles', CURRENT_TIMESTAMP); -- Post 2 is associated with 'Los Angeles'
+
+
+-- Assuming user_id and post_id values already exist in Users and Posts tables
+INSERT INTO Comments (content, post_id, user_id)
+VALUES ('Great post!', 1, 2), -- User with user_id 2 comments on Post 1
+       ('Awesome!', 2, 1); -- User with user_id 1 comments on Post 
+
+
+----insertion in messages table
+INSERT INTO messages (sender_id, receiver_id, text, timestamp)
+VALUES 
+    (1, 2, 'Hello, how are you?', '2024-02-17 10:00:00'),
+    (2, 1, 'Hi! I am doing well, thank you!', '2024-02-17 10:05:00');
+
+
+INSERT INTO Users (username, name, password, bio, email, phone, gender, acc_type)
+VALUES 
+    ('alice_wonderland', 'Alice Wonderland', 'password789', 'Adventure awaits!', 'alice@gmail.com', '5551234567', 'Female', 'personal'),
+    ('bob_builder', 'Bob Builder', 'passwordabc', 'Can we fix it? Yes, we can!', 'bob@gmail.com', '9998887777', 'Male', 'business'),
+    ('lisa_jones', 'Lisa Jones', 'passwordxyz', 'Living life to the fullest!', 'lisa@gmail.com', '4443332222', 'Female', 'personal'),
+    ('mike_doe', 'Mike Doe', 'password456', 'Exploring new things!', 'mike@gmail.com', '2223334444', 'Male', 'personal'),
+    ('sara_smith', 'Sara Smith', 'password789', 'Nature lover!', 'sara@gmail.com', '7778889999', 'Female', 'business');
+
+
+
+INSERT INTO Post_Location (post_id, location_name)
+VALUES 
+    (1, 'Beach'),   -- Location for post 1
+    (9, 'Mountains'),  -- Location for post 9
+    (11, 'City Park'), -- Location for post 11
+    (2, 'Restaurant'),   -- Location for post 2
+    (3, 'Forest'),   -- Location for post 3
+    (10, 'Coffee Shop'); -- Location for post 10
+
+INSERT INTO Comments (content, post_id, user_id)
+VALUES 
+    ('Great photo!', 1, 4),   -- User 4 comments on post 1
+    ('Love the scenery!', 9, 5),  -- User 5 comments on post 9
+    ('Amazing!', 11, 3),  -- User 3 comments on post 11
+    ('Nice shot!', 2, 4),   -- User 4 comments on post 2
+    ('Beautiful!', 3, 5),   -- User 5 comments on post 3
+    ('Fantastic view!', 10, 3); -- User 3 comments on post 10
+
+INSERT INTO Liked_by (user_id, post_id)
+VALUES 
+    (3, 1),  -- User 3 likes post 1
+    (4, 9),  -- User 4 likes post 9
+    (5, 11), -- User 5 likes post 11
+    (3, 2),  -- User 3 likes post 2
+    (4, 3),  -- User 4 likes post 3
+    (5, 10); -- User 5 likes post 10
+
+
+INSERT INTO Posts (like_count, comment_count, caption, image_url, user_id)
+VALUES 
+    (15, 8, 'Exciting adventure!', 'https://example.com/adventure.jpg', 4), -- Post for user 4
+    (12, 5, 'Beautiful nature!', 'https://example.com/nature.jpg', 5);   -- Post for user 5
+
+
+
+
+---------------------------------------------------------------------------
+Queries:
+SELECT p.post_id, p.caption, COUNT(l.post_id) AS total_likes
+FROM Posts p
+LEFT JOIN Liked_by l ON p.post_id = l.post_id
+GROUP BY p.post_id, p.caption;
+
+SELECT gettotallikes(1);
+
+SELECT u.user_id, u.username, COUNT(DISTINCT p.post_id) AS total_posts, SUM(p.like_count) AS total_likes
+FROM Users u
+LEFT JOIN Posts p ON u.user_id = p.user_id
+GROUP BY u.user_id, u.username;
+
+
+
+
